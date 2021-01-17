@@ -27,38 +27,39 @@ t2l = tag2link.tag2link(os.path.dirname(os.path.realpath(__file__)) + "/tool/tag
 
 
 def _get(db, err_id=None, uuid=None):
-    columns_marker = ["marker.item", "marker.source", "marker.class", "marker.elems", "marker.fixes",
-        "marker.lat", "marker.lon",
-        "class.title", "marker.subtitle", "dynpoi_class.timestamp",
-        "class.detail", "class.fix", "class.trap", "class.example", "class.source AS source_code", "class.resource",
-        ]
+    columns_marker = [
+        "markers.item",
+        "markers.source_id", "markers.class",
+        "elems", "fixes",
+        "lat", "lon",
+        "title", "subtitle", "updates_last.timestamp",
+        "detail", "fix", "trap", "example", "source AS source_code", "resource",
+    ]
 
     if err_id:
-        sql = "SELECT uuid_to_bigint(marker.uuid) AS id, " + ",".join(columns_marker) + """
+        sql = "SELECT uuid_to_bigint(markers.uuid) AS id, " + ",".join(columns_marker) + """
         FROM
-            marker
-            JOIN dynpoi_class ON
-                marker.source = dynpoi_class.source AND
-                marker.class = dynpoi_class.class
+            markers
             JOIN class ON
-                marker.item = class.item AND
-                marker.class = class.class
+                class.item = markers.item AND
+                class.class = markers.class
+            JOIN updates_last ON
+                updates_last.source_id = markers.source_id
         WHERE
-            uuid_to_bigint(marker.uuid) = %s
+            uuid_to_bigint(uuid) = %s
         """
         db.execute(sql, (err_id, ))
     else:
         sql = "SELECT " + ",".join(columns_marker) + """
         FROM
-            marker
-            JOIN dynpoi_class ON
-                marker.source = dynpoi_class.source AND
-                marker.class = dynpoi_class.class
+            markers
             JOIN class ON
-                marker.item = class.item AND
-                marker.class = class.class
+                class.item = markers.item AND
+                class.class = markers.class
+            JOIN updates_last ON
+                updates_last.source_id = markers.source_id
         WHERE
-            marker.uuid = %s
+            uuid = %s
         """
         db.execute(sql, (uuid, ))
 

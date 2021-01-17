@@ -103,8 +103,8 @@ $function$;
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 9.6.17
--- Dumped by pg_dump version 9.6.17
+-- Dumped from database version 11.8
+-- Dumped by pg_dump version 11.7 (Debian 11.7-0+deb10u1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -120,12 +120,22 @@ SET row_security = off;
 SET default_with_oids = false;
 
 --
--- Name: backend; Type: TABLE; Schema: public; Owner: -
+-- Name: backends; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.backend (
+CREATE TABLE public.backends (
     ip character varying(128) NOT NULL,
     hostname character varying(256) NOT NULL
+);
+
+
+--
+-- Name: categories; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.categories (
+    id integer NOT NULL,
+    menu jsonb
 );
 
 
@@ -150,35 +160,12 @@ CREATE TABLE public.class (
 
 
 --
--- Name: dynpoi_categ; Type: TABLE; Schema: public; Owner: -
+-- Name: items; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.dynpoi_categ (
-    categ integer NOT NULL,
-    menu jsonb
-);
-
-
---
--- Name: dynpoi_class; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.dynpoi_class (
-    source integer NOT NULL,
-    class integer NOT NULL,
-    item integer,
-    "timestamp" timestamp without time zone,
-    count integer
-);
-
-
---
--- Name: dynpoi_item; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.dynpoi_item (
+CREATE TABLE public.items (
     item integer NOT NULL,
-    categ integer,
+    categorie_id integer NOT NULL,
     marker_color character varying(16),
     marker_flag character varying(16),
     menu jsonb,
@@ -189,55 +176,11 @@ CREATE TABLE public.dynpoi_item (
 
 
 --
--- Name: dynpoi_status; Type: TABLE; Schema: public; Owner: -
+-- Name: markers; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.dynpoi_status (
-    source integer NOT NULL,
-    class integer NOT NULL,
-    date timestamp with time zone,
-    status character varying(128),
-    lat numeric(9,7) NOT NULL,
-    lon numeric(10,7) NOT NULL,
-    subtitle jsonb,
-    uuid uuid NOT NULL,
-    elems jsonb[]
-);
-
-
---
--- Name: dynpoi_update; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.dynpoi_update (
-    source integer NOT NULL,
-    "timestamp" timestamp with time zone NOT NULL,
-    remote_url character varying(2048),
-    remote_ip character varying(128),
-    version text,
-    analyser_version text
-);
-
-
---
--- Name: dynpoi_update_last; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.dynpoi_update_last (
-    source integer NOT NULL,
-    "timestamp" timestamp with time zone,
-    version text,
-    remote_ip character varying(128) DEFAULT NULL::character varying,
-    analyser_version text
-);
-
-
---
--- Name: marker; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.marker (
-    source integer,
+CREATE TABLE public.markers (
+    source_id integer,
     class integer,
     lat numeric(9,7),
     lon numeric(10,7),
@@ -251,10 +194,40 @@ WITH (autovacuum_enabled='true', toast.autovacuum_enabled='true');
 
 
 --
--- Name: source; Type: TABLE; Schema: public; Owner: -
+-- Name: markers_counts; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.source (
+CREATE TABLE public.markers_counts (
+    source_id integer NOT NULL,
+    class integer NOT NULL,
+    item integer,
+    count integer
+);
+
+
+--
+-- Name: markers_status; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.markers_status (
+    source_id integer NOT NULL,
+    class integer NOT NULL,
+    date timestamp with time zone,
+    status character varying(128),
+    lat numeric(9,7) NOT NULL,
+    lon numeric(10,7) NOT NULL,
+    subtitle jsonb,
+    uuid uuid NOT NULL,
+    elems jsonb[],
+    item integer NOT NULL
+);
+
+
+--
+-- Name: sources; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sources (
     id integer NOT NULL,
     country character varying(256),
     analyser character varying(256)
@@ -262,21 +235,70 @@ CREATE TABLE public.source (
 
 
 --
--- Name: source_password; Type: TABLE; Schema: public; Owner: -
+-- Name: sources_password; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.source_password (
+CREATE TABLE public.sources_password (
     source_id integer NOT NULL,
     password character varying(128) NOT NULL
 );
 
 
 --
--- Name: backend backend_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: stats; Type: TABLE; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.backend
+CREATE TABLE public.stats (
+    source_id integer,
+    class integer,
+    count integer,
+    timestamp_range tsrange
+);
+
+
+--
+-- Name: updates; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.updates (
+    source_id integer NOT NULL,
+    "timestamp" timestamp with time zone NOT NULL,
+    remote_url character varying(2048),
+    remote_ip character varying(128),
+    version text,
+    analyser_version text
+);
+
+
+--
+-- Name: updates_last; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.updates_last (
+    source_id integer NOT NULL,
+    "timestamp" timestamp with time zone,
+    version text,
+    remote_ip character varying(128) DEFAULT NULL::character varying,
+    analyser_version text
+);
+
+
+--
+-- Name: backends backend_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.backends
     ADD CONSTRAINT backend_pkey PRIMARY KEY (ip, hostname);
+
+
+--
+-- Name: categories categories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_pkey PRIMARY KEY (id);
+
+ALTER TABLE public.categories CLUSTER ON categories_pkey;
 
 
 --
@@ -288,239 +310,276 @@ ALTER TABLE ONLY public.class
 
 
 --
--- Name: dynpoi_categ dynpoi_categ_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: items items_marker_color_flag; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.dynpoi_categ
-    ADD CONSTRAINT dynpoi_categ_pkey PRIMARY KEY (categ);
-
-ALTER TABLE public.dynpoi_categ CLUSTER ON dynpoi_categ_pkey;
+ALTER TABLE ONLY public.items
+    ADD CONSTRAINT items_marker_color_flag UNIQUE (marker_color, marker_flag);
 
 
 --
--- Name: dynpoi_class dynpoi_class_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: items items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.dynpoi_class
-    ADD CONSTRAINT dynpoi_class_pkey PRIMARY KEY (source, class);
+ALTER TABLE ONLY public.items
+    ADD CONSTRAINT items_pkey PRIMARY KEY (item);
 
-
---
--- Name: dynpoi_item dynpoi_item_marker; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.dynpoi_item
-    ADD CONSTRAINT dynpoi_item_marker UNIQUE (marker_color, marker_flag);
+ALTER TABLE public.items CLUSTER ON items_pkey;
 
 
 --
--- Name: dynpoi_item dynpoi_item_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: markers_counts markers_counts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.dynpoi_item
-    ADD CONSTRAINT dynpoi_item_pkey PRIMARY KEY (item);
-
-ALTER TABLE public.dynpoi_item CLUSTER ON dynpoi_item_pkey;
+ALTER TABLE ONLY public.markers_counts
+    ADD CONSTRAINT markers_counts_pkey PRIMARY KEY (source_id, class);
 
 
 --
--- Name: dynpoi_status dynpoi_status_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: markers markers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.dynpoi_status
-    ADD CONSTRAINT dynpoi_status_pkey PRIMARY KEY (uuid);
-
-
---
--- Name: dynpoi_update_last dynpoi_update_last_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.dynpoi_update_last
-    ADD CONSTRAINT dynpoi_update_last_pkey PRIMARY KEY (source);
-
-ALTER TABLE public.dynpoi_update_last CLUSTER ON dynpoi_update_last_pkey;
+ALTER TABLE ONLY public.markers
+    ADD CONSTRAINT markers_pkey PRIMARY KEY (uuid);
 
 
 --
--- Name: dynpoi_update dynpoi_update_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: markers_status markers_status_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.dynpoi_update
-    ADD CONSTRAINT dynpoi_update_pkey PRIMARY KEY (source, "timestamp");
-
-ALTER TABLE public.dynpoi_update CLUSTER ON dynpoi_update_pkey;
+ALTER TABLE ONLY public.markers_status
+    ADD CONSTRAINT markers_status_pkey PRIMARY KEY (uuid);
 
 
 --
--- Name: marker marker_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: sources_password sources_password_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.marker
-    ADD CONSTRAINT marker_pkey PRIMARY KEY (uuid);
-
-
---
--- Name: source_password source_password_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.source_password
-    ADD CONSTRAINT source_password_pkey PRIMARY KEY (source_id, password);
+ALTER TABLE ONLY public.sources_password
+    ADD CONSTRAINT sources_password_pkey PRIMARY KEY (source_id, password);
 
 
 --
--- Name: source source_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: sources sources_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.source
-    ADD CONSTRAINT source_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.sources
+    ADD CONSTRAINT sources_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: updates_last updates_last_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.updates_last
+    ADD CONSTRAINT updates_last_pkey PRIMARY KEY (source_id);
+
+ALTER TABLE public.updates_last CLUSTER ON updates_last_pkey;
+
+
+--
+-- Name: updates updates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.updates
+    ADD CONSTRAINT updates_pkey PRIMARY KEY (source_id, "timestamp");
+
+ALTER TABLE public.updates CLUSTER ON updates_pkey;
 
 
 --
 -- Name: idx_dynpoi_class_class; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_dynpoi_class_class ON public.dynpoi_class USING btree (class);
+CREATE INDEX idx_dynpoi_class_class ON public.markers_counts USING btree (class);
 
-ALTER TABLE public.dynpoi_class CLUSTER ON idx_dynpoi_class_class;
+ALTER TABLE public.markers_counts CLUSTER ON idx_dynpoi_class_class;
 
 
 --
 -- Name: idx_dynpoi_class_item; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_dynpoi_class_item ON public.dynpoi_class USING btree (item);
+CREATE INDEX idx_dynpoi_class_item ON public.markers_counts USING btree (item);
 
 
 --
 -- Name: idx_dynpoi_class_source; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_dynpoi_class_source ON public.dynpoi_class USING btree (source);
-
-
---
--- Name: idx_dynpoi_status_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_dynpoi_status_id ON public.dynpoi_status USING btree (public.uuid_to_bigint(uuid));
-
-
---
--- Name: idx_dynpoi_status_source_class; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_dynpoi_status_source_class ON public.dynpoi_status USING btree (source, class);
+CREATE INDEX idx_dynpoi_class_source ON public.markers_counts USING btree (source_id);
 
 
 --
 -- Name: idx_marker_elem_ids; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_marker_elem_ids ON public.marker USING gin (public.marker_elem_ids(elems));
+CREATE INDEX idx_marker_elem_ids ON public.markers USING gin (public.marker_elem_ids(elems));
 
 
 --
 -- Name: idx_marker_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_marker_id ON public.marker USING btree (public.uuid_to_bigint(uuid));
+CREATE INDEX idx_marker_id ON public.markers USING btree (public.uuid_to_bigint(uuid));
 
 
 --
 -- Name: idx_marker_item; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_marker_item ON public.marker USING btree (item);
+CREATE INDEX idx_marker_item ON public.markers USING btree (item);
 
 
 --
 -- Name: idx_marker_item_lat_lon; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_marker_item_lat_lon ON public.marker USING btree (item, lat, lon);
+CREATE INDEX idx_marker_item_lat_lon ON public.markers USING btree (item, lat, lon);
 
 
 --
 -- Name: idx_marker_source_class; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_marker_source_class ON public.marker USING btree (source, class);
+CREATE INDEX idx_marker_source_class ON public.markers USING btree (source_id, class);
 
 
 --
 -- Name: idx_marker_source_class_z_order_curve; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_marker_source_class_z_order_curve ON public.marker USING btree (source, class, public.lonlat2z_order_curve((lon)::double precision, (lat)::double precision)) WHERE (lat > ('-90'::integer)::numeric);
+CREATE INDEX idx_marker_source_class_z_order_curve ON public.markers USING btree (source_id, class, public.lonlat2z_order_curve((lon)::double precision, (lat)::double precision)) WHERE (lat > ('-90'::integer)::numeric);
 
 
 --
 -- Name: idx_marker_usernames; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_marker_usernames ON public.marker USING gin (public.marker_usernames(elems));
+CREATE INDEX idx_marker_usernames ON public.markers USING gin (public.marker_usernames(elems));
 
 
 --
 -- Name: idx_marker_z_order_curve_item; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_marker_z_order_curve_item ON public.marker USING btree (public.lonlat2z_order_curve((lon)::double precision, (lat)::double precision), item) WHERE (lat > ('-90'::integer)::numeric);
+CREATE INDEX idx_marker_z_order_curve_item ON public.markers USING btree (public.lonlat2z_order_curve((lon)::double precision, (lat)::double precision), item) WHERE (lat > ('-90'::integer)::numeric);
 
 
 --
--- Name: source_country_analyser; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_markers_status_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX source_country_analyser ON public.source USING btree (country, analyser);
-
-
---
--- Name: dynpoi_class class_item_class_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.dynpoi_class
-    ADD CONSTRAINT class_item_class_fkey FOREIGN KEY (item, class) REFERENCES public.class(item, class);
+CREATE INDEX idx_markers_status_id ON public.markers_status USING btree (public.uuid_to_bigint(uuid));
 
 
 --
--- Name: dynpoi_class dynpoi_class_source_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: idx_markers_status_source_id_class; Type: INDEX; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.dynpoi_class
-    ADD CONSTRAINT dynpoi_class_source_fkey FOREIGN KEY (source) REFERENCES public.source(id);
-
-
---
--- Name: dynpoi_status dynpoi_status_source_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.dynpoi_status
-    ADD CONSTRAINT dynpoi_status_source_fkey FOREIGN KEY (source) REFERENCES public.source(id);
+CREATE INDEX idx_markers_status_source_id_class ON public.markers_status USING btree (source_id, class);
 
 
 --
--- Name: marker marker_class_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: idx_stats; Type: INDEX; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.marker
-    ADD CONSTRAINT marker_class_fkey FOREIGN KEY (source, class) REFERENCES public.dynpoi_class(source, class);
-
-
---
--- Name: marker marker_source_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.marker
-    ADD CONSTRAINT marker_source_fkey FOREIGN KEY (source) REFERENCES public.source(id);
+CREATE INDEX idx_stats ON public.stats USING btree (source_id, class);
 
 
 --
--- Name: source_password source_password_source_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: sources_country_analyser; Type: INDEX; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.source_password
-    ADD CONSTRAINT source_password_source_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
+CREATE INDEX sources_country_analyser ON public.sources USING btree (country, analyser);
+
+
+--
+-- Name: markers_status dynpoi_status_source_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.markers_status
+    ADD CONSTRAINT dynpoi_status_source_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id);
+
+
+--
+-- Name: items item_categorie_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.items
+    ADD CONSTRAINT item_categorie_fkey FOREIGN KEY (categorie_id) REFERENCES public.categories(id);
+
+
+--
+-- Name: markers_counts markers_counts_item_class_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.markers_counts
+    ADD CONSTRAINT markers_counts_item_class_fkey FOREIGN KEY (item, class) REFERENCES public.class(item, class);
+
+
+--
+-- Name: markers_counts markers_counts_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.markers_counts
+    ADD CONSTRAINT markers_counts_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id);
+
+
+--
+-- Name: markers markers_item_class_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.markers
+    ADD CONSTRAINT markers_item_class_fkey FOREIGN KEY (item, class) REFERENCES public.class(item, class);
+
+
+--
+-- Name: markers markers_sources_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.markers
+    ADD CONSTRAINT markers_sources_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id);
+
+
+--
+-- Name: markers_status markers_status_item_class_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.markers_status
+    ADD CONSTRAINT markers_status_item_class_fkey FOREIGN KEY (item, class) REFERENCES public.class(item, class);
+
+
+--
+-- Name: sources_password sources_password_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sources_password
+    ADD CONSTRAINT sources_password_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id);
+
+
+--
+-- Name: stats stats_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.stats
+    ADD CONSTRAINT stats_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id);
+
+
+--
+-- Name: updates_last updates_last_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.updates_last
+    ADD CONSTRAINT updates_last_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id);
+
+
+--
+-- Name: updates updates_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.updates
+    ADD CONSTRAINT updates_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.sources(id);
 
 
 --

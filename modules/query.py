@@ -23,7 +23,7 @@
 from . import utils, tiles
 
 
-def _build_where_item(item, table):
+def _build_where_item(table, item):
     if item == '':
         where = "1=2"
     elif item == None or item == 'xxxx':
@@ -49,21 +49,33 @@ def _build_where_item(item, table):
     return where
 
 
+def _build_where_class(table, classs):
+    return "{0}.class IN ({1})".format(table, ','.join(map(lambda c: str(int(c)), classs.split(','))))
+
+
 def _build_param(db, bbox, source, item, level, users, classs, country, useDevItem, status, tags, fixable, forceTable=[],
                  summary=False, stats=False, start_date=None, end_date=None, last_update=None, tilex=None, tiley=None, zoom=None,
                  osm_type=None, osm_id=None):
+    base_table = None
     join = ""
     where = ["1=1"]
 
     if summary:
-        join += "dynpoi_class AS marker"
+        base_table = "markers_counts"
+        join += "markers_counts AS markers"
     elif stats:
-        join += "stats AS marker"
+        base_table = "stats"
+        if item:
+            join += "(SELECT stats.*, item FROM stats JOIN markers_counts ON markers_counts.source_id = stats.source_id AND markers_counts.class = stats.class) AS markers"
+        else:
+            join += "stats AS markers"
     elif status in ("done", "false"):
-        join += "dynpoi_status AS marker"
-        where.append("marker.status = '%s'" % status)
+        base_table = "markers_status"
+        join += "markers_status AS markers"
+        where.append("markers.status = '%s'" % status)
     else:
-        join += "marker"
+        base_table = "markers"
+        join += "markers"
 
     if source:
         sources = source.split(",")
@@ -71,71 +83,64 @@ def _build_param(db, bbox, source, item, level, users, classs, country, useDevIt
         for source in sources:
             source = source.split("-")
             if len(source)==1:
-                source2.append("(marker.source=%d)"%int(source[0]))
+                source2.append("(markers.source_id=%d)"%int(source[0]))
             else:
-                source2.append("(marker.source=%d AND marker.class=%d)"%(int(source[0]), int(source[1])))
+                source2.append("(markers.source_id=%d AND markers.class=%d)"%(int(source[0]), int(source[1])))
         sources2 = " OR ".join(source2)
         where.append("(%s)" % sources2)
 
     tables = list(forceTable)
     tablesLeft = []
 
-    if join.startswith("marker"):
-        itemField = "marker"
-    else:
-        if item:
-            tables.append("dynpoi_class")
-        itemField = "dynpoi_class"
-
     if (level and level != "1,2,3") or tags:
         tables.append("class")
     if country is not None:
-        tables.append("source")
+        tables.append("sources")
     if not stats:
-        tables.append("dynpoi_item")
+        tables.append("items")
         if useDevItem:
-            tablesLeft.append("dynpoi_item")
+            tablesLeft.append("items")
     if last_update:
-            tables.append("dynpoi_update_last")
+            tables.append("updates_last")
 
-    if "dynpoi_class" in tables:
+    if "markers_counts" in tables:
         join += """
-        JOIN dynpoi_class ON
-            marker.source = dynpoi_class.source AND
-            marker.class = dynpoi_class.class"""
+        JOIN markers_counts ON
+            markers.source_id = markers_counts.source_id AND
+            markers.class = markers_counts.class"""
 
     if "class" in tables:
         join += """
         JOIN class ON
-            """ + itemField + """.item = class.item AND
-            """ + itemField + """.class = class.class"""
+            markers.item = class.item AND
+            markers.class = class.class"""
 
-    if "source" in tables:
+    if "sources" in tables:
         join += """
-        JOIN source ON
-            marker.source = source.id"""
+        JOIN sources ON
+            markers.source_id = sources.id"""
 
-    if "dynpoi_item" in tables:
+    if "items" in tables:
         join += """
-        %sJOIN dynpoi_item ON
-            %s.item = dynpoi_item.item""" % ("LEFT " if "dynpoi_item" in tablesLeft else "", itemField)
+        %sJOIN items ON
+            markers.item = items.item""" % ("LEFT " if "items" in tablesLeft else "")
 
-    if "dynpoi_update_last" in tables:
+    if "updates_last" in tables:
         join += """
-        JOIN dynpoi_update_last ON
-            dynpoi_update_last.source = marker.source"""
+        JOIN updates_last ON
+            updates_last.source_id = markers.source_id"""
 
     if item != None:
-        where.append(_build_where_item(item, itemField))
+        where.append(_build_where_item("markers", item))
 
     if level and level != "1,2,3":
         where.append("class.level IN (%s)" % level)
 
     if classs:
-        where.append("marker.class IN (%s)" % ','.join(map(lambda c: str(int(c)), classs.split(','))))
+        where.append(_build_where_class("markers", classs))
 
     if bbox:
-        where.append("marker.lat BETWEEN %f AND %f AND marker.lon BETWEEN %f AND %f" % (bbox[1], bbox[3], bbox[0], bbox[2]))
+        where.append("markers.lat BETWEEN %f AND %f AND markers.lon BETWEEN (%f + 180) %% 360 - 180 AND (%f + 180) %% 360 - 180" % (bbox[1], bbox[3], bbox[0], bbox[2]))
         if item is None:
             # Compute a tile to use index
             tilex, tiley, zoom = tiles.bbox2tile(*bbox)
@@ -149,38 +154,38 @@ def _build_param(db, bbox, source, item, level, users, classs, country, useDevIt
     if country is not None:
         if len(country) >= 1 and country[-1] == "*":
             country = country[:-1] + "%"
-        where.append("source.country LIKE '%s'" % country)
+        where.append("sources.country LIKE '%s'" % country)
 
     if not status in ("done", "false") and useDevItem == True:
-        where.append("dynpoi_item.item IS NULL")
+        where.append("items.item IS NULL")
 
     if not status in ("done", "false") and users:
-        where.append("ARRAY['%s'] && marker_usernames(marker.elems)" % "','".join(map(lambda user: utils.pg_escape(db.mogrify(user).decode('utf-8')), users)))
+        where.append("ARRAY['%s'] && marker_usernames(markers.elems)" % "','".join(map(lambda user: utils.pg_escape(db.mogrify(user).decode('utf-8')), users)))
 
     if stats:
         if start_date and end_date:
-            where.append("marker.timestamp_range && tsrange('{0}', '{1}', '[]')".format(start_date.isoformat(), end_date.isoformat()))
+            where.append("markers.timestamp_range && tsrange('{0}', '{1}', '[]')".format(start_date.isoformat(), end_date.isoformat()))
         elif start_date:
-            where.append("marker.timestamp_range && tsrange('{0}', NULL, '[)')".format(start_date.isoformat()))
+            where.append("markers.timestamp_range && tsrange('{0}', NULL, '[)')".format(start_date.isoformat()))
         elif end_date:
-            where.append("marker.timestamp_range && tsrange(NULL, '{1}', '(]')".format(end_date.isoformat()))
+            where.append("markers.timestamp_range && tsrange(NULL, '{1}', '(]')".format(end_date.isoformat()))
     elif status in ("done", "false"):
         if start_date:
-            where.append("marker.date > '%s'" % start_date.isoformat())
+            where.append("markers.date > '%s'" % start_date.isoformat())
         if end_date:
-            where.append("marker.date < '%s'" % end_date.isoformat())
+            where.append("markers.date < '%s'" % end_date.isoformat())
 
     if tags:
         where.append("class.tags::text[] && ARRAY['%s']" % "','".join(map(utils.pg_escape, tags)))
 
     if fixable == 'online':
-        where.append("(SELECT bool_or(fix->'id' != '0'::jsonb) FROM (SELECT jsonb_array_elements(unnest(fixes))) AS t(fix))")
+        where.append("(SELECT bool_or(fix->>'id' != '0') FROM (SELECT jsonb_array_elements(unnest(fixes))) AS t(fix))")
     elif fixable == 'josm':
         where.append("fixes IS NOT NULL")
 
-    if osm_type and osm_id and join.startswith("marker"):
+    if osm_type and osm_id and base_table == "markers":
         where.append('ARRAY[%s::bigint] <@ marker_elem_ids(elems)' % (osm_id, )) # Match the index
-        where.append('(SELECT bool_or(elem->\'type\' = \'"%s"\'::jsonb AND elem->\'id\' = \'%s\'::jsonb) FROM (SELECT unnest(elems)) AS t(elem))' % (osm_type[0].upper(), osm_id)) # Recheck with type
+        where.append('(SELECT bool_or(elem->>\'type\' = \'%s\' AND elem->>\'id\' = \'%s\') FROM (SELECT unnest(elems)) AS t(elem))' % (osm_type[0].upper(), osm_id)) # Recheck with type
 
     return (join, " AND\n        ".join(where))
 
@@ -201,43 +206,36 @@ def _gets(db, params):
     sqlbase = """
     SELECT
         uuid_to_bigint(uuid) as id,
-        marker.uuid AS uuid,"""
-    if not params.status in ("done", "false"):
-        sqlbase += """
-        marker.item,
-        marker.class,"""
-    else:
-        sqlbase += """
-        dynpoi_class.item,
-        dynpoi_class.class,"""
-    sqlbase += """
-        marker.lat,
-        marker.lon,"""
+        markers.uuid AS uuid,
+        markers.item,
+        markers.class,
+        markers.lat,
+        markers.lon,"""
     if params.full:
         sqlbase += """
-        marker.source,
-        marker.elems,
-        marker.subtitle,
-        source.country,
-        source.analyser,
+        markers.source_id,
+        markers.elems,
+        markers.subtitle,
+        sources.country,
+        sources.analyser,
         class.title,
         class.level,
-        dynpoi_update_last.timestamp,
-        dynpoi_item.menu"""
+        updates_last.timestamp,
+        items.menu"""
         if not params.status in ("done", "false"):
             sqlbase += """,
         -1 AS date"""
         else:
             sqlbase += """,
-        marker.date,"""
+        markers.date,"""
     sqlbase = sqlbase[0:-1] + """
     FROM
         %s
-        JOIN dynpoi_update_last ON
-            marker.source = dynpoi_update_last.source
+        JOIN updates_last ON
+            markers.source_id = updates_last.source_id
     WHERE
         %s AND
-        dynpoi_update_last.timestamp > (now() - interval '3 months')
+        updates_last.timestamp > (now() - interval '3 months')
     """
     if params.limit:
         sqlbase += """
@@ -245,7 +243,7 @@ def _gets(db, params):
         %s""" % params.limit
 
     if params.full:
-        forceTable = ["class", "source"]
+        forceTable = ["class", "sources"]
     else:
         forceTable = []
 
@@ -271,7 +269,7 @@ def _count(db, params, by, extraFrom=[], extraFields=[], orderBy=False):
         countField = [ "count(*) AS count" ]
     else:
         summary = True
-        countField = [ "SUM(marker.count) AS count" ]
+        countField = [ "SUM(markers.count) AS count" ]
 
     byTable = set(list(map(lambda x: x.split('.')[0], by)) + extraFrom)
     sqlbase  = """
@@ -296,7 +294,7 @@ def _count(db, params, by, extraFrom=[], extraFields=[], orderBy=False):
     if params.limit:
         sqlbase += " LIMIT %s" % params.limit
     last_update = False
-    if "dynpoi_update_last" in byTable:
+    if "updates_last" in byTable:
         last_update = True
 
     join, where = _build_param(db, params.bbox, params.source, params.item, params.level, params.users, params.classs, params.country, params.useDevItem, params.status, params.tags, params.fixable, summary=summary, forceTable=byTable, start_date=params.start_date, end_date=params.end_date, last_update=last_update, tilex=params.tilex, tiley=params.tiley, zoom=params.zoom, osm_type=params.osm_type, osm_id=params.osm_id)

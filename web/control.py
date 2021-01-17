@@ -29,16 +29,16 @@ from collections import defaultdict
 def updates(db, lang):
     db.execute("""
 SELECT
-    source.id,
-    EXTRACT(EPOCH FROM ((now())-dynpoi_update_last.timestamp)) AS age,
-    source.country,
-    source.analyser
+    sources.id,
+    EXTRACT(EPOCH FROM ((now())-updates_last.timestamp)) AS age,
+    sources.country,
+    sources.analyser
 FROM
-    source
-    LEFT JOIN dynpoi_update_last ON
-        source.id = dynpoi_update_last.source
+    sources
+    LEFT JOIN updates_last ON
+        sources.id = updates_last.source_id
 ORDER BY
-    dynpoi_update_last.timestamp DESC
+    updates_last.timestamp DESC
 """)
     liste = []
     for res in db.fetchall():
@@ -62,23 +62,23 @@ def updates(db, lang):
     remote = request.params.get('remote')
     country = request.params.get('country')
     db.execute("""
-SELECT DISTINCT ON (source.id)
-    source.id,
-    EXTRACT(EPOCH FROM ((now())-dynpoi_update_last.timestamp)) AS age,
+SELECT DISTINCT ON (sources.id)
+    sources.id,
+    EXTRACT(EPOCH FROM ((now())-updates_last.timestamp)) AS age,
     country,
     analyser
 FROM
-    source
-    JOIN dynpoi_update_last ON
-        source.id = dynpoi_update_last.source
+    sources
+    JOIN updates_last ON
+        sources.id = updates_last.source_id
 WHERE
 """ + ("""
     RIGHT(MD5(remote_ip), 4) = %(remote)s AND """ if remote else "") + ("""
-    source.country LIKE %(country)s AND """ if country else "") + """
+    sources.country LIKE %(country)s AND """ if country else "") + """
     true
 ORDER BY
-    source.id ASC,
-    dynpoi_update_last.timestamp DESC
+    sources.id ASC,
+    updates_last.timestamp DESC
 """, {"remote": remote, "country": country and country.replace("*", "%")})
 
     keys = defaultdict(int)
@@ -122,21 +122,21 @@ ORDER BY
 def updates(db, lang):
     db.execute("""
 SELECT
-    backend.hostname AS hostname,
-    dynpoi_update_last.remote_ip AS remote,
+    backends.hostname AS hostname,
+    updates_last.remote_ip AS remote,
     RIGHT(MD5(remote_ip), 4) AS remote_ip_hash,
     country,
-    MAX(EXTRACT(EPOCH FROM ((now())-dynpoi_update_last.timestamp))) AS max_age,
-    MIN(EXTRACT(EPOCH FROM ((now())-dynpoi_update_last.timestamp))) AS min_age,
-    MAX(dynpoi_update_last.version) AS max_version,
-    MIN(dynpoi_update_last.version) AS min_version,
+    MAX(EXTRACT(EPOCH FROM ((now())-updates_last.timestamp))) AS max_age,
+    MIN(EXTRACT(EPOCH FROM ((now())-updates_last.timestamp))) AS min_age,
+    MAX(updates_last.version) AS max_version,
+    MIN(updates_last.version) AS min_version,
     count(*) AS count
 FROM
-    source
-    JOIN dynpoi_update_last ON
-        source.id = dynpoi_update_last.source
-    LEFT JOIN backend ON
-        dynpoi_update_last.remote_ip = backend.ip
+    sources
+    JOIN updates_last ON
+        sources.id = updates_last.source_id
+    LEFT JOIN backends ON
+        updates_last.remote_ip = backends.ip
 GROUP BY
     hostname,
     remote_ip,
@@ -178,17 +178,17 @@ def updates(db, lang):
 SELECT
     analyser,
     COUNT(*),
-    MIN(EXTRACT(EPOCH FROM ((now())-dynpoi_update_last.timestamp)))/60/60/24 AS min_age,
-    MAX(EXTRACT(EPOCH FROM ((now())-dynpoi_update_last.timestamp)))/60/60/24 AS max_age,
-    MIN(dynpoi_update_last.version) AS min_version,
-    MAX(dynpoi_update_last.version) AS max_version
+    MIN(EXTRACT(EPOCH FROM ((now())-updates_last.timestamp)))/60/60/24 AS min_age,
+    MAX(EXTRACT(EPOCH FROM ((now())-updates_last.timestamp)))/60/60/24 AS max_age,
+    MIN(updates_last.version) AS min_version,
+    MAX(updates_last.version) AS max_version
 FROM
-    source
-    JOIN dynpoi_update_last ON
-        source.id = dynpoi_update_last.source
+    sources
+    JOIN updates_last ON
+        sources.id = updates_last.source_id
 WHERE
-    dynpoi_update_last.version IS NOT NULL AND
-    dynpoi_update_last.version NOT IN ('(None)', '(unknown)')
+    updates_last.version IS NOT NULL AND
+    updates_last.version NOT IN ('(None)', '(unknown)')
 GROUP BY
     analyser
 ORDER BY
@@ -209,6 +209,6 @@ ORDER BY
 
 @route('/control/update/<source:int>')
 def update(db, lang, source=None):
-    sql = "SELECT source,timestamp,remote_url,remote_ip,version FROM dynpoi_update WHERE source=%d ORDER BY timestamp DESC;" % source
+    sql = "SELECT source_id,timestamp,remote_url,remote_ip,version FROM updates WHERE source_id=%d ORDER BY timestamp DESC;" % source
     db.execute(sql)
     return template('control/update', translate=translator(lang), liste=db.fetchall())

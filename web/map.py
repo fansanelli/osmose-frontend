@@ -42,9 +42,6 @@ def index(db, user, lang):
 
     tags = query_meta._tags(db)
 
-    db.execute("SELECT item FROM dynpoi_item GROUP BY item;")
-    all_items = list(map(lambda res: int(res[0]), db.fetchall()))
-
     categories = query_meta._items_3(db)
 
     item_tags = defaultdict(set)
@@ -79,13 +76,13 @@ def index(db, user, lang):
 SELECT
     EXTRACT(EPOCH FROM ((now())-timestamp)) AS age
 FROM
-    dynpoi_update_last
+    updates_last
 ORDER BY
     timestamp
 LIMIT
     1
 OFFSET
-    (SELECT COUNT(*)/2 FROM dynpoi_update_last)
+    (SELECT COUNT(*)/2 FROM updates_last)
 ;
 """
     db.execute(sql)

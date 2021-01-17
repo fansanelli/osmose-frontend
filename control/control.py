@@ -25,6 +25,7 @@ from modules import utils
 from . import update
 import os
 import sys
+import traceback
 
 
 @post('/send-update')
@@ -48,9 +49,9 @@ def send_update(db):
 SELECT
     id
 FROM
-    source
-    JOIN source_password ON
-        source.id = source_id
+    sources
+    JOIN sources_password ON
+        sources.id = source_id
 WHERE
     analyser = %(analyser)s AND
     country = %(country)s AND
@@ -63,10 +64,10 @@ LIMIT 1
     if not res and not os.environ.get("OSMOSE_UNLOCKED_UPDATE"):
         abort(403, 'AUTH FAIL')
     if not res and os.environ.get("OSMOSE_UNLOCKED_UPDATE"):
-        r = db.execute("SELECT COALESCE(MAX(id), 0) + 1 AS id FROM source")
+        r = db.execute("SELECT COALESCE(MAX(id), 0) + 1 AS id FROM sources")
         source_id = db.fetchone()["id"]
-        db.execute("INSERT INTO source(id, country, analyser) VALUES (%s, %s, %s)", (source_id, country, analyser))
-        db.execute("INSERT INTO source_password(source_id, password) VALUES(%s, %s)", (source_id, code))
+        db.execute("INSERT INTO sources(id, country, analyser) VALUES (%s, %s, %s)", (source_id, country, analyser))
+        db.execute("INSERT INTO sources_password(source_id, password) VALUES(%s, %s)", (source_id, code))
         db.connection.commit()
     else:
         source_id = res["id"]
@@ -95,12 +96,12 @@ LIMIT 1
         traceback.print_exc()
         sys.stderr = sys.__stderr__
         traceback = s.getvalue()
-        return traceback.rstrip()
+        abort(500, traceback.rstrip())
 
     return "OK"
 
 def _status_object(db, t, source):
-    db.execute('SELECT elem->''id'' FROM (SELECT unnest(elems) AS elem FROM marker WHERE source=1) AS t WHERE elem->''type'' = ''"%s"''::jsonb', (source, t))
+    db.execute('SELECT string_agg(elem->>\'id\', \',\') FROM (SELECT unnest(elems) AS elem FROM markers WHERE source_id=%s) AS t WHERE elem->>\'type\' = %s', (source, t))
     s = db.fetchone()
     if s and s[0]:
         return list(map(int, s[0].split(',')))
@@ -112,16 +113,16 @@ def status(db, country = None, analyser = None):
 
     objects = request.params.get('objects', default=False)
 
-    db.execute('SELECT timestamp, source, analyser_version FROM dynpoi_update_last WHERE source = (SELECT id FROM source WHERE analyser = %s AND country = %s)', (analyser, country))
+    db.execute('SELECT timestamp, source_id, analyser_version FROM updates_last WHERE source_id = (SELECT id FROM sources WHERE analyser = %s AND country = %s)', (analyser, country))
     r = db.fetchone()
     if r and r['timestamp']:
         return {
            'version': 1,
            'timestamp': str(r['timestamp'].replace(tzinfo=None)),
            'analyser_version': str(r['analyser_version'] or ''),
-           'nodes': _status_object(db, 'N', r['source']) if objects != False else None,
-           'ways': _status_object(db, 'W', r['source']) if objects != False else None,
-           'relations': _status_object(db, 'R', r['source']) if objects != False else None,
+           'nodes': _status_object(db, 'N', r['source_id']) if objects != False else None,
+           'ways': _status_object(db, 'W', r['source_id']) if objects != False else None,
+           'relations': _status_object(db, 'R', r['source_id']) if objects != False else None,
         }
     else:
         return HTTPError(404)

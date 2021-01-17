@@ -9,32 +9,32 @@ DIR_DUMP="/data/work/$(whoami)/"
 # Update various tables in database
 
 psql -d $DATABASE -c "
-DELETE FROM dynpoi_status
+DELETE FROM markers_status
 WHERE date < now()-interval '7 day' AND status = 'done';
 "
 
 psql -d $DATABASE -c "
 CREATE TEMP TABLE stats_update AS
 SELECT
-  c.source,
+  c.source_id,
   c.class,
   now()::timestamp AS timestamp,
   c.count
 FROM (
   SELECT
-    dynpoi_class.source,
-    dynpoi_class.class,
-    count(marker.source) AS count
-  FROM dynpoi_class
-    LEFT JOIN marker ON
-      dynpoi_class.source = marker.source AND
-      dynpoi_class.class = marker.class
+    markers_counts.source_id,
+    markers_counts.class,
+    count(markers.source_id) AS count
+  FROM markers_counts
+    LEFT JOIN markers ON
+      markers_counts.source_id = markers.source_id AND
+      markers_counts.class = markers.class
   GROUP BY
-    dynpoi_class.source,
-    dynpoi_class.class
+    markers_counts.source_id,
+    markers_counts.class
   ) AS c
     LEFT JOIN stats ON
-      stats.source = c.source AND
+      stats.source_id = c.source_id AND
       stats.class = c.class
 WHERE
   stats.count IS NULL OR
@@ -52,7 +52,7 @@ SET
 FROM
   stats_update
 WHERE
-  stats_update.source = stats.source AND
+  stats_update.source_id = stats.source_id AND
   stats_update.class = stats.class AND
   upper(stats.timestamp_range) IS NULL
 ;
@@ -60,7 +60,7 @@ WHERE
 -- Open new range
 INSERT INTO stats (
   SELECT
-    source,
+    source_id,
     class,
     count,
     tsrange(timestamp, NULL)
@@ -70,12 +70,12 @@ INSERT INTO stats (
 "
 
 psql -d $DATABASE -c "
-UPDATE dynpoi_item SET levels = (
+UPDATE items SET levels = (
   SELECT array_agg(level)
   FROM (
     SELECT level
     FROM class
-    WHERE item = dynpoi_item.item
+    WHERE item = items.item
     GROUP BY level
     ORDER BY level
   ) AS a
@@ -83,13 +83,13 @@ UPDATE dynpoi_item SET levels = (
 "
 
 psql -d $DATABASE -c "
-UPDATE dynpoi_item SET number = (
+UPDATE items SET number = (
   SELECT array_agg(n)
   FROM (
-    SELECT sum(CASE WHEN marker.item IS NOT NULL THEN 1 ELSE 0 END) AS n
+    SELECT sum(CASE WHEN markers.item IS NOT NULL THEN 1 ELSE 0 END) AS n
     FROM class
-      LEFT JOIN marker ON marker.item = dynpoi_item.item
-    WHERE class.item = dynpoi_item.item
+      LEFT JOIN markers ON markers.item = items.item
+    WHERE class.item = items.item
     GROUP BY level
     ORDER BY level
   ) AS a
@@ -97,14 +97,14 @@ UPDATE dynpoi_item SET number = (
 "
 
 psql -d $DATABASE -c "
-UPDATE dynpoi_item SET tags = (
+UPDATE items SET tags = (
   SELECT array_agg(tag)
   FROM (
     SELECT tag
     FROM (
       SELECT unnest(tags) AS tag
       FROM class
-      WHERE item = dynpoi_item.item
+      WHERE item = items.item
       ) AS a
     WHERE tag != ''
     GROUP BY tag
@@ -119,26 +119,26 @@ mkdir -p "$DIR_DUMP/export"
 
 # Dump of errors - commented, because it takes a long time on a big database
 
-#pg_dump -t dynpoi_status_id_seq -t dynpoi_categ -t dynpoi_class -t dynpoi_item -t dynpoi_update_last -t marker -t marker_elem -t marker_fix -t source $DATABASE \
+#pg_dump -t categories -t markers_counts -t items -t updates_last -t markers -t sources $DATABASE \
 #  | bzip2 > "$DIR_DUMP/tmp/osmose-planet-latest.sql.bz2.tmp"
 #mv "$DIR_DUMP/tmp/osmose-planet-latest.sql.bz2.tmp" "$DIR_DUMP/export/osmose-planet-latest.sql.bz2"
 #
 #psql $DATABASE -c "COPY (SELECT source.country,
 #             source.analyser,
-#             marker.lat,
-#             marker.lon,
-#             marker.elems,
-#             marker.class,
-#             marker.subclass,
-#             marker.item
-#      FROM marker
-#      LEFT JOIN source ON source.id = marker.source)
+#             markers.lat,
+#             markers.lon,
+#             markers.elems,
+#             markers.class,
+#             markers.subclass,
+#             markers.item
+#      FROM markers
+#      LEFT JOIN sources ON sources.id = markers.source_id)
 #TO STDOUT WITH CSV HEADER;" | bzip2 > "$DIR_DUMP/tmp/osmose-planet-latest.csv.bz2"
 #mv "$DIR_DUMP/tmp/osmose-planet-latest.csv.bz2" "$DIR_DUMP/export/osmose-planet-latest.csv.bz2"
 
 
 # Dump menu items
 
-pg_dump --data-only -t dynpoi_categ -t dynpoi_item $DATABASE \
+pg_dump --data-only -t categories -t items $DATABASE \
   | bzip2 > "$DIR_DUMP/tmp/osmose-menu.sql.bz2.tmp"
 mv "$DIR_DUMP/tmp/osmose-menu.sql.bz2.tmp" "$DIR_DUMP/export/osmose-menu.sql.bz2"

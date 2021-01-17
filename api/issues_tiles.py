@@ -20,7 +20,7 @@
 ##                                                                       ##
 ###########################################################################
 
-from bottle import default_app, route, response, HTTPError
+from bottle import default_app, route, response, HTTPError, HTTPResponse
 from modules.params import Params
 from modules import query, tiles
 import math
@@ -99,7 +99,7 @@ def heat(db, z, x, y):
     lon2,lat1 = tiles.tile2lonlat(x+1,y+1,z)
 
     params = Params()
-    items = query._build_where_item(params.item, "dynpoi_item")
+    items = query._build_where_item(params.item, "items")
     params.tilex = x
     params.tiley = y
     params.zoom = z
@@ -113,7 +113,7 @@ def heat(db, z, x, y):
 SELECT
     SUM((SELECT SUM(t) FROM UNNEST(number) t))
 FROM
-    dynpoi_item
+    items
 WHERE
 """ + items)
     limit = db.fetchone()
@@ -131,7 +131,7 @@ SELECT
     COUNT(*),
     ((lon-%(lon1)s) * %(count)s / (%(lon2)s-%(lon1)s) + 0.5)::int AS latn,
     ((lat-%(lat1)s) * %(count)s / (%(lat2)s-%(lat1)s) + 0.5)::int AS lonn,
-    mode() WITHIN GROUP (ORDER BY dynpoi_item.marker_color) AS color
+    mode() WITHIN GROUP (ORDER BY items.marker_color) AS color
 FROM
 """ + join + """
 WHERE
@@ -169,8 +169,6 @@ GROUP BY
 def issues_mvt(db, z, x, y, format):
     lon1,lat2 = tiles.tile2lonlat(x,y,z)
     lon2,lat1 = tiles.tile2lonlat(x+1,y+1,z)
-    dlon = (lon2 - lon1) / 256
-    dlat = (lat2 - lat1) / 256
 
     params = Params(max_limit=50 if z > 18 else 10000)
     params.tilex = x
@@ -193,7 +191,7 @@ def issues_mvt(db, z, x, y, format):
             response.content_type = 'application/vnd.mapbox-vector-tile'
             return tile
         else:
-            return HTTPError(404)
+            return HTTPResponse(status=204, headers={'Access-Control-Allow-Origin': '*'})
     elif format in ('geojson', 'json'):  # Fall back to GeoJSON
         tile = _errors_geojson(db, results, z, lon1, lat1, lon2, lat2, params.limit)
         if tile:

@@ -26,6 +26,7 @@ from .tool.translation import translator
 from modules.params import Params
 from modules import query
 from modules import query_meta
+from collections import defaultdict
 import io, re, csv
 
 from . import errors_graph
@@ -36,18 +37,9 @@ def int_list(s):
 
 @route('/errors/graph.<format:ext>')
 def graph(db, format='png'):
-    class options:
-        sources = request.params.get('source', type=int_list, default=[])
-        classes = request.params.get('class', type=int_list, default=[])
-        items   = request.params.get('item', type=int_list, default=[])
-        levels  = request.params.get('level', type=int_list, default=[])
-        country = request.params.get('country')
-        if country != None and not re.match(r"^([a-z_]+(\*|))$", country):
-            country = None
-
     try:
-        data = errors_graph.make_plt(db, options, format)
-        response.content_type = {'png':'image/png', 'svg':'image/svg+xml', 'pdf':'application/pdf'}[format]
+        data = errors_graph.make_plt(db, Params(), format)
+        response.content_type = {'png':'image/png', 'svg':'image/svg+xml', 'pdf':'application/pdf', 'csv':'text/csv', 'json':'application/json'}[format]
         return data
     except Exception as e:
         response.content_type = "text/plain"
@@ -72,7 +64,7 @@ def index(db, lang, format=None):
         title = _("Fixed issues")
         gen = "done"
     else:
-        title = _("Informations")
+        title = _("Information")
         gen = "error"
 
     if not format in ('rss', 'gpx', 'kml', 'josm', 'csv'):
@@ -88,15 +80,15 @@ def index(db, lang, format=None):
 
     if format == None and params.item:
         errors_groups = query._count(db, params, [
-            "dynpoi_class.item",
-            "marker.source",
-            "marker.class",
-            "source.country",
-            "source.analyser",
-            "dynpoi_update_last.timestamp"], [
-            "dynpoi_item",
+            "markers_counts.item",
+            "markers.source_id",
+            "markers.class",
+            "sources.country",
+            "sources.analyser",
+            "updates_last.timestamp"], [
+            "items",
             "class"], [
-            "min(dynpoi_item.menu::text)::jsonb AS menu",
+            "min(items.menu::text)::jsonb AS menu",
             "min(class.title::text)::jsonb AS title"],
         )
 
@@ -152,3 +144,27 @@ def index(db, lang, format=None):
         tpl = 'errors/index'
 
     return template(tpl, countries=countries, items=items, errors_groups=errors_groups, total=total, errors=errors, query=request.query_string, country=params.country, item=params.item, level=params.level, lang=lang[0], translate=translator(lang), gen=gen, opt_date=opt_date, title=title, website=utils.website, main_website=utils.main_website, remote_url_read=utils.remote_url_read)
+
+
+@route('/issues/matrix')
+def matrix(db, lang):
+    params = Params(default_limit=None)
+    errors_groups = query._count(db, params, [
+        "markers.item",
+        "markers.class",
+        "sources.country",
+        "items.menu->'en'"]
+    )
+    analysers = defaultdict(lambda: defaultdict(int))
+    analysers_sum = defaultdict(int)
+    countries_sum = defaultdict(int)
+    total = 0
+    for row in errors_groups:
+        item, class_, country, menu, count = row
+        analyser = '{}/{} {}'.format(item, class_, menu)
+        analysers[analyser][country] += count
+        analysers_sum[analyser] += count
+        countries_sum[country] += count
+        total += count
+
+    return template('errors/matrix', total=total, countries_sum=countries_sum, analysers_sum=analysers_sum, analysers=analysers)

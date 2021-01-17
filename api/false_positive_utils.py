@@ -20,37 +20,38 @@
 ###########################################################################
 
 def _get(db, status, err_id=None, uuid=None):
-    columns = ["item", "dynpoi_status.source", "class",
+    columns = [
+        "markers_status.item", "source_id", "markers_status.class",
         "lat", "lon",
         "title", "subtitle",
-        "dynpoi_status.date", "dynpoi_class.timestamp"]
+        "date",
+    ]
 
     if err_id:
         sql = "SELECT " + ",".join(columns) + """
         FROM
-            dynpoi_status
-            JOIN dynpoi_class USING (source,class)
-            JOIN class USING (item, class)
+            markers_status
+            JOIN class ON
+                class.item = markers_status.item AND
+                class.class = markers_status.class
         WHERE
-            dynpoi_status.status = %s AND
-            uuid_to_bigint(dynpoi_status.uuid) = %s
+            status = %s AND
+            uuid_to_bigint(uuid) = %s
         """
         db.execute(sql, (status, err_id))
     else:
         sql = "SELECT " + ",".join(columns) + """
         FROM
-            dynpoi_status
-            JOIN dynpoi_class USING (source,class)
-            JOIN class USING (item, class)
+            markers_status
+        JOIN class ON
+            class.item = markers_status.item AND
+            class.class = markers_status.class
         WHERE
-            dynpoi_status.status = %s AND
-            dynpoi_status.uuid = %s
+            status = %s AND
+            uuid = %s
         """
         db.execute(sql, (status, uuid))
 
     marker = db.fetchone()
-
-    if not marker:
-        abort(410, "Id is not present in database.")
 
     return (marker, columns)

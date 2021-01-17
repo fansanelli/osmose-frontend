@@ -43,11 +43,11 @@ languages_name["zh_CN"] = u"中文 (简体)"
 languages_name["zh_TW"] = u"中文 (繁體)"
 
 allowed_languages = list(languages_name)
-pg_host           = os.environ.get('DB_HOST', '') # Use socket by default
-pg_port           = "5432"
-pg_user           = "osmose"
-pg_pass           = "clostAdtoi"
-pg_base           = "osmose_frontend"
+pg_host           = os.environ.get("DB_HOST", "") # Use socket by default
+pg_port           = os.environ.get("DB_PORT", "5432")
+pg_user           = os.environ.get("DB_USER", "osmose")
+pg_pass           = os.environ.get("DB_PASS", "clostAdtoi")
+pg_base           = os.environ.get("DB_NAME", "osmose_frontend")
 db_string         = "host='%s' port='%s' dbname='%s' user='%s' password='%s'" % (pg_host, pg_port, pg_base, pg_user, pg_pass)
 website           = os.environ.get('URL_FRONTEND') or "osmose.openstreetmap.fr"
 
@@ -89,7 +89,7 @@ def pg_escape(text):
 def get_sources():
     conn = get_dbconn()
     curs = conn.cursor()
-    curs.execute("SELECT id, password, country, analyser FROM source JOIN source_password ON source.id = source_id;")
+    curs.execute("SELECT id, password, country, analyser FROM sources JOIN sources_password ON sources.id = source_id;")
     config = {}
     for res in curs.fetchall():
         src = {}

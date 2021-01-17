@@ -78,7 +78,7 @@
   <div id="tests" >
 %it = set()
 %for categ in categories:
-    <div class="test_group" id="categ{{categ["categ"]}}">
+    <div class="test_group" id="categ{{categ["id"]}}">
     <h1><i class="toggleCategIco"></i><a href="#" class="toggleCateg">{{translate.select(categ["title"])}}</a>
     <span class="count">-/-</span>
     <a href="#" class="toggleAllItem" data-view="all">{{_("all")}}</a>
@@ -116,9 +116,9 @@
 
 <div id="doc">
 <h5>{{_("Welcome to Osmose-QA")}}</h5>
-<p>{{_("Osmose-QA a is quality assurance tools available to detect issues in OpenStreetMap data.")}}</p>
-<p>{{_("It detects a very wide range of issue types. It is also useful for integrating third-party data sets or conflation.")}}</p>
-<p>{{_("Feel free to report problem, idea or new OpenData you want to add to Osmose on our Github.")}}</p>
+<p>{{_("Osmose-QA is a quality assurance tool that detects issues in OpenStreetMap data.")}}</p>
+<p>{{_("It detects a very wide range of issue types. It is also useful for integrating third-party data sets by conflation.")}}</p>
+<p>{{_("Feel free to report any problem, idea or new open data you want to add to Osmose on our Github:")}} <a href="https://github.com/osm-fr?q=osmose" target="_blank">Osmose-QA</a></p>
 <p>{{_("In no case Osmose-QA should provide you the absolute right way to map, always keep a critical eye.")}}</p>
 <p>{{_("You can find help on the wiki:")}} <a href="https://wiki.openstreetmap.org/wiki/Osmose" target="_blank">wiki.osm.org/Osmose</a></p>
 </div>
@@ -152,7 +152,7 @@
   <li><a data-href="../errors.rss" target="_blank">RSS</a></li>
   <li><a data-href="../errors.gpx">GPX</a></li>
   <li><a data-href="../errors.kml">KML</a></li>
-  <li><a data-href="/api/0.3beta/issues" target="_blank">Json</a></li>
+  <li><a data-href="/api/0.3/issues" target="_blank">Json</a></li>
   <li><a data-href="../errors.csv" target="_blank">CSV</a></li>
   <li><a data-href="markers" target="_blank">GeoJson</a></li>
 </ul>

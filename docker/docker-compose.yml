@@ -17,6 +17,9 @@ services:
       #- type: bind
       #  source: ./postgresql-data:
       #  target: /var/lib/postgresql/data
+    environment:
+     - POSTGRES_PASSWORD=osmose
+     - POSTGRES_HOST_AUTH_METHOD=trust
     networks:
       - osmose-frontend-internal
 

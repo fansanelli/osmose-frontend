@@ -84,38 +84,39 @@ def update(source_id, fname, logger = printlogger(), remote_ip=""):
     ## update subtitle from new errors
     execute_sql(dbcurs, """
 UPDATE
-  dynpoi_status
+  markers_status
 SET
-  subtitle = marker.subtitle
+  subtitle = markers.subtitle
 FROM
-  marker
+  markers
 WHERE
-  marker.source = %s AND
-  dynpoi_status.uuid = marker.uuid
+  markers.source_id = %s AND
+  markers_status.item = markers.item AND
+  markers_status.uuid = markers.uuid
 """, (source_id, ))
 
     ## remove false positive no longer present
-#    execute_sql(dbcurs, """DELETE FROM dynpoi_status
-#                      WHERE (source,class,elems) NOT IN (SELECT source,class,elems FROM marker WHERE source = %s) AND
-#                            source = %s AND
+#    execute_sql(dbcurs, """DELETE FROM markers_status
+#                      WHERE (source_id,class,elems) NOT IN (SELECT source_id,class,elems FROM markers WHERE source_id = %s) AND
+#                            source_id = %s AND
 #                            date < now()-interval '7 day'""",
 #                   (source_id, source_id, ))
 
     execute_sql(dbcurs, """
 DELETE FROM
-  marker
+  markers
 USING
-  dynpoi_status
+  markers_status
 WHERE
-  marker.source = %s AND
-  dynpoi_status.uuid = marker.uuid
+  markers.source_id = %s AND
+  markers_status.uuid = markers.uuid
 """, (source_id, ))
 
-    execute_sql(dbcurs, """UPDATE dynpoi_class
-                      SET count = (SELECT count(*) FROM marker
-                                   WHERE marker.source = dynpoi_class.source AND
-                                         marker.class = dynpoi_class.class)
-                      WHERE dynpoi_class.source = %s""",
+    execute_sql(dbcurs, """UPDATE markers_counts
+                      SET count = (SELECT count(*) FROM markers
+                                   WHERE markers.source_id = markers_counts.source_id AND
+                                         markers.class = markers_counts.class)
+                      WHERE markers_counts.source_id = %s""",
                    (source_id, ))
 
     ## commit and close
@@ -149,6 +150,7 @@ class update_parser(handler.ContentHandler):
             self.update_timestamp(attrs)
 
         elif name == u"analyserChange":
+            self.all_uuid = None
             self.mode = "analyserChange"
             self.update_timestamp(attrs)
 
@@ -227,11 +229,11 @@ class update_parser(handler.ContentHandler):
             # used by files generated with an .osc file
             execute_sql(self._dbcurs, """
 DELETE FROM
-    marker
+    markers
 WHERE
-    source = %s AND
-    (SELECT bool_or(elem->\'type\' = \'"%s"\'::jsonb AND elem->\'id\' = \'%s\'::jsonb) FROM (SELECT unnest(elems)) AS t(elem))
-""", (self._source_id, attrs["type"][0].upper(), attrs["id"]))
+    source_id = %s AND
+    (SELECT bool_or(elem->>\'type\' = %s AND elem->>\'id\' = %s) FROM (SELECT unnest(elems)) AS t(elem))
+""", (self._source_id, attrs["type"][0].upper(), str(attrs["id"])))
 
         elif name == u"fixes":
             self.elem_mode = "fix"
@@ -247,9 +249,9 @@ WHERE
     def endElement(self, name):
         self.element_stack.pop()
 
-        if name == u"analyser":
+        if name == "analyser" and self.all_uuid:
             for class_id, uuid in self.all_uuid.items():
-                execute_sql(self._dbcurs, "DELETE FROM marker WHERE source = %s AND class = %s AND uuid != ALL (%s::uuid[])", (self._source_id, class_id, uuid))
+                execute_sql(self._dbcurs, "DELETE FROM markers WHERE source_id = %s AND class = %s AND uuid != ALL (%s::uuid[])", (self._source_id, class_id, uuid))
 
         elif name == u"error":
             ## add data at all location
@@ -284,14 +286,14 @@ WHERE
             sql_uuid = u"SELECT ('{' || encode(substring(digest(%(source)s || '/' || %(class)s || '/' || %(subclass)s || '/' || %(elems_sig)s, 'sha256') from 1 for 16), 'hex') || '}')::uuid AS uuid"
 
             ## sql template
-            sql_marker = u"INSERT INTO marker (uuid, source, class, item, lat, lon, elems, fixes, subtitle) "
+            sql_marker = u"INSERT INTO markers (uuid, source_id, class, item, lat, lon, elems, fixes, subtitle) "
             sql_marker += u"VALUES (('{' || encode(substring(digest(%(source)s || '/' || %(class)s || '/' || %(subclass)s || '/' || %(elems_sig)s, 'sha256') from 1 for 16), 'hex') || '}')::uuid, "
             sql_marker += u"%(source)s, %(class)s, %(item)s, %(lat)s, %(lon)s, %(elems)s::jsonb[], %(fixes)s::jsonb[], %(subtitle)s) "
             sql_marker += u"ON CONFLICT (uuid) DO "
             sql_marker += u"UPDATE SET item = %(item)s, lat = %(lat)s, lon = %(lon)s, elems = %(elems)s::jsonb[], fixes = %(fixes)s::jsonb[], subtitle = %(subtitle)s "
-            sql_marker += u"WHERE marker.uuid = ('{' || encode(substring(digest(%(source)s || '/' || %(class)s || '/' || %(subclass)s || '/' || %(elems_sig)s, 'sha256') from 1 for 16), 'hex') || '}')::uuid AND "
-            sql_marker += u"      marker.source = %(source)s AND marker.class = %(class)s AND "
-            sql_marker += u"      (marker.item IS DISTINCT FROM %(item)s OR marker.lat IS DISTINCT FROM %(lat)s OR marker.lon IS DISTINCT FROM %(lon)s OR marker.elems IS DISTINCT FROM %(elems)s::jsonb[] OR marker.fixes IS DISTINCT FROM %(fixes)s::jsonb[] OR marker.subtitle IS DISTINCT FROM %(subtitle)s) "
+            sql_marker += u"WHERE markers.uuid = ('{' || encode(substring(digest(%(source)s || '/' || %(class)s || '/' || %(subclass)s || '/' || %(elems_sig)s, 'sha256') from 1 for 16), 'hex') || '}')::uuid AND "
+            sql_marker += u"      markers.source_id = %(source)s AND markers.class = %(class)s AND "
+            sql_marker += u"      (markers.item IS DISTINCT FROM %(item)s OR markers.lat IS DISTINCT FROM %(lat)s OR markers.lon IS DISTINCT FROM %(lon)s OR markers.elems IS DISTINCT FROM %(elems)s::jsonb[] OR markers.fixes IS DISTINCT FROM %(fixes)s::jsonb[] OR markers.subtitle IS DISTINCT FROM %(subtitle)s) "
             sql_marker += u"RETURNING uuid"
 
             for location in self._error_locations:
@@ -313,7 +315,7 @@ WHERE
 
                 execute_sql(self._dbcurs, sql_uuid, params)
                 r = self._dbcurs.fetchone()
-                if r and r[0]:
+                if r and r[0] and self.all_uuid is not None:
                     self.all_uuid[self._class_id].append(r[0])
 
                 execute_sql(self._dbcurs, sql_marker, params)
@@ -330,7 +332,8 @@ WHERE
                 self._fix.append(self._elem)
 
         elif name == u"class":
-            self.all_uuid[self._class_id] = []
+            if self.all_uuid is not None:
+                self.all_uuid[self._class_id] = []
 
             # Commit class update on its own transaction. Avoid lock the class table and block other updates.
             dbconn = utils.get_dbconn()
@@ -358,16 +361,15 @@ WHERE
             dbconn.commit()
             dbconn.close()
 
-            sql  = u"INSERT INTO dynpoi_class (source, class, item, timestamp) "
-            sql += u"VALUES (%(source)s, %(class)s, %(item)s, %(timestamp)s)"
-            sql += u"ON CONFLICT (source, class) DO "
-            sql += u"UPDATE SET item = %(item)s, timestamp = %(timestamp)s "
-            sql += u"WHERE dynpoi_class.source = %(source)s AND dynpoi_class.class = %(class)s"
+            sql  = u"INSERT INTO markers_counts (source_id, class, item) "
+            sql += u"VALUES (%(source)s, %(class)s, %(item)s) "
+            sql += u"ON CONFLICT (source_id, class) DO "
+            sql += u"UPDATE SET item = %(item)s "
+            sql += u"WHERE markers_counts.source_id = %(source)s AND markers_counts.class = %(class)s"
             execute_sql(self._dbcurs, sql, {
                 'source': self._source_id,
                 'class': self._class_id,
                 'item': self._class_item[self._class_id],
-                'timestamp':  utils.pg_escape(self.ts),
             })
 
         elif name == u"fixes":
@@ -382,7 +384,7 @@ WHERE
 
         if not self._tstamp_updated:
             try:
-                execute_sql(self._dbcurs, "INSERT INTO dynpoi_update (source, timestamp, remote_url, remote_ip, version, analyser_version) VALUES(%s, %s, %s, %s, %s, %s);",
+                execute_sql(self._dbcurs, "INSERT INTO updates (source_id, timestamp, remote_url, remote_ip, version, analyser_version) VALUES(%s, %s, %s, %s, %s, %s);",
                                      (self._source_id, utils.pg_escape(self.ts),
                                       utils.pg_escape(self._source_url),
                                       utils.pg_escape(self._remote_ip),
@@ -390,7 +392,7 @@ WHERE
                                       utils.pg_escape(self.analyser_version)))
             except psycopg2.IntegrityError:
                 self._dbconn.rollback()
-                execute_sql(self._dbcurs, "SELECT count(*) FROM dynpoi_update WHERE source = %s AND \"timestamp\" = %s",
+                execute_sql(self._dbcurs, "SELECT count(*) FROM updates WHERE source_id = %s AND \"timestamp\" = %s",
                                      (self._source_id, utils.pg_escape(self.ts)))
                 r = self._dbcurs.fetchone()
                 if r["count"] == 1:
@@ -398,14 +400,14 @@ WHERE
                 else:
                     raise
 
-            execute_sql(self._dbcurs, "UPDATE dynpoi_update_last SET timestamp=%s, version=%s, analyser_version=%s, remote_ip=%s WHERE source=%s;",
+            execute_sql(self._dbcurs, "UPDATE updates_last SET timestamp=%s, version=%s, analyser_version=%s, remote_ip=%s WHERE source_id=%s;",
                                  (utils.pg_escape(self.ts),
                                   utils.pg_escape(self.version),
                                   utils.pg_escape(self.analyser_version),
                                   utils.pg_escape(self._remote_ip),
                                   self._source_id))
             if self._dbcurs.rowcount == 0:
-                execute_sql(self._dbcurs, "INSERT INTO dynpoi_update_last(source, timestamp, version, analyser_version, remote_ip) VALUES(%s, %s, %s, %s, %s);",
+                execute_sql(self._dbcurs, "INSERT INTO updates_last(source_id, timestamp, version, analyser_version, remote_ip) VALUES(%s, %s, %s, %s, %s);",
                                  (self._source_id,
                                   utils.pg_escape(self.ts),
                                   utils.pg_escape(self.version),
@@ -444,13 +446,13 @@ class Test(unittest.TestCase):
         self.dbcurs.execute(open("tools/database/schema.sql", "r").read())
         # Re-initialise search_path as cleared by schema.sql
         self.dbcurs.execute("SET search_path TO \"$user\", public;")
-        self.dbcurs.execute("INSERT INTO source (id, country, analyser) VALUES (%s, %s, %s);",
+        self.dbcurs.execute("INSERT INTO sources (id, country, analyser) VALUES (%s, %s, %s);",
                        (1, "xx1", "yy1"))
-        self.dbcurs.execute("INSERT INTO source (id, country, analyser) VALUES (%s, %s, %s);",
+        self.dbcurs.execute("INSERT INTO sources (id, country, analyser) VALUES (%s, %s, %s);",
                        (2, "xx2", "yy2"))
-        self.dbcurs.execute("INSERT INTO source_password (source_id, password) VALUES (%s, %s);",
+        self.dbcurs.execute("INSERT INTO sources_password (source_id, password) VALUES (%s, %s);",
                        (1, "xx1"))
-        self.dbcurs.execute("INSERT INTO source_password (source_id, password) VALUES (%s, %s);",
+        self.dbcurs.execute("INSERT INTO sources_password (source_id, password) VALUES (%s, %s);",
                        (2, "xx2"))
         self.dbconn.commit()
 
@@ -459,7 +461,7 @@ class Test(unittest.TestCase):
 
 
     def check_num_marker(self, num):
-        self.dbcurs.execute("SELECT count(*) FROM marker")
+        self.dbcurs.execute("SELECT count(*) FROM markers")
         cur_num = self.dbcurs.fetchone()[0]
         self.assertEquals(num, cur_num)
 
